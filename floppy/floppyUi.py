@@ -2,36 +2,42 @@ import json
 import os
 import time
 from copy import deepcopy
-from floppy.graph import Graph
-from floppy.node import InputNotAvailable, ControlNode, DynamicNode, MetaNode, Node, NODECLASSES, _NODECLASSES
-from floppy.ressources.mainWindow import Ui_MainWindow
-from floppy.floppySettings import SettingsDialog
-from floppy.nodeLib import ContextNodeFilter, ContextNodeList, customNodesPath
-from floppy.FloppyTypes import FLOPPYTYPES
+from PyQt5.QtGui import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import Qt, QPoint, QSettings
-from PyQt5.QtGui import *
 from PyQt5.Qt import QTimer
 from collections import OrderedDict
 import platform
 import logging
+from floppy.graph import Graph
+from floppy.node import (
+    MetaNode,ControlNode, DynamicNode,SubGraph,
+    _NODECLASSES,NODECLASSES, ismanaged, isnotmanaged,validatenodename,
+    ManagedNodeError,SaveNodesError,NodeUpdateError,InputAlreadySet,InputNotAvailable
+)
+#from floppy.Nodes.floppyBaseNodes import ControlNode, DynamicNode
+from floppy.ressources.mainWindow import Ui_MainWindow
+from floppy.floppySettings import SettingsDialog
+from floppy.nodeLib import ContextNodeFilter, ContextNodeList
+from floppy.FloppyTypes import FLOPPYTYPEMAP
+import traceback
+from pprint import pprint
 
 logger = logging.getLogger('Floppy')
 
 mainWindow = None
-
-MANAGEDNODECLASSES = {}
 
 LOCALPORT = 8080
 PINSIZE = 8
 NODETITLEFONTSIZE = 12
 CONNECTIONLINEWIDTH = 2
 NODEWIDTHSCALE = 100
-TEXTYOFFSET = 0
-LINEEDITFONTSIZE = 8
 if platform.system() is 'Windows':
     TEXTYOFFSET = 4
     LINEEDITFONTSIZE = 7
+else:
+    TEXTYOFFSET = 0
+    LINEEDITFONTSIZE = 8
 
 
 class Painter(QWidget):
@@ -40,11 +46,14 @@ class Painter(QWidget):
 
 
 class Painter2D(Painter):
-    PINCOLORS = {str: QColor(255, 190, 0),
-                 int: QColor(0, 115, 130),
-                 float: QColor(0, 200, 0),
-                 object: QColor(190, 190, 190),
-                 bool: QColor(190, 0, 0),}
+    PINCOLORS = {
+        None.__class__: QColor(128,128,128),# This is only used for NodeWizard to display dummy input and oputput
+        str: QColor(255, 190, 0),
+        int: QColor(0, 115, 130),
+        float: QColor(0, 200, 0),
+        object: QColor(190, 190, 190),
+        bool: QColor(190, 0, 0),
+    }
     nodes = []
     scale = 1.
     globalOffset = QPoint(0, 0)
@@ -470,7 +479,7 @@ class Painter2D(Painter):
         halfPinSize = PINSIZE//2
 
         for j, node in enumerate(self.nodes):
-            if issubclass(type(node), DynamicNode):
+            if issubclass(type(node), SubGraph):
                 node.probeGraph()
                 self.updateDrawItems(node)
             if not self.selectedSubgraph[0] == node.subgraph:
@@ -520,6 +529,7 @@ class Painter2D(Painter):
             painter.drawText(x, y+3, w, h, Qt.AlignHCenter, node.__class__.__name__)
             painter.setBrush(QColor(40, 40, 40))
             drawOffset = 25
+            #pprint(('dre',self.drawItemsOfNode))
             # for i, inputPin in enumerate(node.inputPins.values()):
             for i, drawItem in enumerate(self.drawItemsOfNode[node]['inp']):
                 inputPin = drawItem.data
@@ -533,15 +543,18 @@ class Painter2D(Painter):
                         self.triggers.add(node)
                         drawItem.activeate()
                 # pen.setColor(QColor(255, 190, 0))
-                try:
-                    pen.setColor(Painter2D.PINCOLORS[inputPin.info.varType])
-                except KeyError:
-                    pen.setColor(QColor(*inputPin.info.varType.color))
-                pen.setWidth(2)
-                painter.setPen(pen)
                 if inputPin.ID == self.clickedPin:
                     pen.setColor(Qt.red)
-                    painter.setPen(pen)
+                else:
+                    try:
+                        pen.setColor(Painter2D.PINCOLORS[inputPin.info.varType])
+                    except KeyError:
+                        Painter2D.PINCOLORS[inputPin.info.varType] = QColor(*inputPin.info.varType.color)
+                        pen.setColor(Painter2D.PINCOLORS[inputPin.info.varType])
+                        #pen.setColor(Painter2D.PINCOLORS[inputPin.info.varType])
+                        #pen.setColor(QColor(*inputPin.info.varType.color))
+                pen.setWidth(2)
+                painter.setPen(pen)
                 if inputPin.name == 'Control':
                     painter.drawEllipse(x-halfPinSize+w/2., y-halfPinSize, PINSIZE, PINSIZE)
                     point = QPoint(x+w/2., y) * painter.transform()
@@ -711,6 +724,13 @@ class Painter2D(Painter):
 
 
     def registerNode(self, node, position, silent=False):
+        print("register node",node,node.__class__.__name__)
+
+        #from PyQt5.QtCore import pyqtRemoveInputHook,pyqtRestoreInputHook
+        #pyqtRemoveInputHook()
+        #import pdb
+        #pdb.set_trace()
+
         if not silent:
             # self.parent().parent().parent().parent().parent().statusBar.showMessage('Spawned node of class \'{}\'.'
             #                                                                         .format(type(node).__name__), 2000)
@@ -741,8 +761,11 @@ class Painter2D(Painter):
                 s = LineEdit(node, inp, self)
             self.drawItems.append(s)
             self.drawItemsOfNode[node]['inp'].append(s)
+        pprint(('regn',self.drawItemsOfNode))
+        print("register node successful",node,node.__class__.__name__)
 
     def unregisterNode(self, node):
+        print("unregister node",node,node.__class__.__name__)
         self.nodes.remove(node)
         del self.drawItemsOfNode[node]
 
@@ -769,6 +792,7 @@ class Painter2D(Painter):
                 s = LineEdit(node, inp, self)
             self.drawItems.append(s)
             self.drawItemsOfNode[node]['inp'].append(s)
+        pprint(('udi',self.drawItemsOfNode))
         # node.__size__ = (1, len(node.inputs) + len(node.outputs) + len(node.INNERINPUTS))
         node.__size__ = (1, len(node.inputs) + len(node.outputs))
 
@@ -859,39 +883,49 @@ QPushButton {
         pass
 
     def paintEvent(self, event):
-        super(WizardPainter, self).paintEvent(event)
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.HighQualityAntialiasing)
-        c = 125
-        pen = QPen(QColor(c,c,c), 2, Qt.SolidLine)
-        painter.setPen(pen)
-
-        # Name
-        painter.drawLine(self.width()/10+20,45,self.width()/2-39, 45)
-        painter.drawLine(self.width()/2-39,45, self.width()/2, 75)
-
-        # Input
-        painter.drawLine(30, 85, self.width()/2-74, 85)
-        painter.drawLine(self.width()/2-74, 85, self.width()/2 -49, 105)
-
-        # Output
-        tmpNode = list(self.graph.nodes.values())[0]
-        inpNum = len(tmpNode.__inputs__.values()) -1
-        offset = inpNum * 20
-        painter.drawLine(self.width()-45, 102+offset, self.width() / 2 + 74, 102+offset)
-        painter.drawLine(self.width() / 2 + 74, 102+offset, self.width() / 2 + 49, 122+offset)
-        self.outB.setGeometry(self.width() - 60, 92+offset, 50, 20)
-
-        # Setup
-        painter.drawLine(self.width()*.75 +20, 63, self.width() / 2 + 39, 63)
-        painter.drawLine(self.width() / 2 + 39, 63, self.width() / 2, 93)
-
-        # Run
-        outNum = len(tmpNode.__outputs__.values()) - 1
-        offset += outNum * 20
-        painter.drawLine(self.width()/10 + 20, 160+offset, self.width() / 2 - 39, 160+offset)
-        painter.drawLine(self.width() / 2 - 39, 160+offset, self.width() / 2, 140+offset)
-        self.runB.setGeometry(self.width() / 10, 150+offset, 50, 20)
+        try:
+            super(WizardPainter, self).paintEvent(event)
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.HighQualityAntialiasing)
+            c = 125
+            pen = QPen(QColor(c,c,c), 2, Qt.SolidLine)
+            painter.setPen(pen)
+    
+            # Name
+            painter.drawLine(self.width()/10+20,45,self.width()/2-39, 45)
+            painter.drawLine(self.width()/2-39,45, self.width()/2, 75)
+    
+            # Input
+            painter.drawLine(30, 85, self.width()/2-74, 85)
+            painter.drawLine(self.width()/2-74, 85, self.width()/2 -49, 105)
+    
+            # Output
+            tmpNode = list(self.graph.nodes.values())[0]
+            inpNum = len(tmpNode.__inputs__.values()) -1
+            offset = inpNum * 20
+            painter.drawLine(self.width()-45, 102+offset, self.width() / 2 + 74, 102+offset)
+            painter.drawLine(self.width() / 2 + 74, 102+offset, self.width() / 2 + 49, 122+offset)
+            self.outB.setGeometry(self.width() - 60, 92+offset, 50, 20)
+    
+            # Setup
+            painter.drawLine(self.width()*.75 +20, 63, self.width() / 2 + 39, 63)
+            painter.drawLine(self.width() / 2 + 39, 63, self.width() / 2, 93)
+    
+            # Run
+            outNum = len(tmpNode.__outputs__.values()) - 1
+            offset += outNum * 20
+            painter.drawLine(self.width()/10 + 20, 160+offset, self.width() / 2 - 39, 160+offset)
+            painter.drawLine(self.width() / 2 - 39, 160+offset, self.width() / 2, 140+offset)
+            self.runB.setGeometry(self.width() / 10, 150+offset, 50, 20)
+        except:
+            import traceback
+            traceback.print_exc()
+            print("fail in paint event for now")
+            import pdb
+            from PyQt5.QtCore import pyqtRemoveInputHook, pyqtRestoreInputHook
+            pyqtRemoveInputHook()
+            pdb.set_trace()
+            raise
 
     def mousePressEvent(self, event):
         pass
@@ -986,15 +1020,30 @@ class NodeWizardDialog(QDialog):
 
         self.painterBox.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff )
         self.painterBox.setWidget(newPainter)
+        self._defaultinput = True
+        self._defaultoutput = True
 
-        NodeClass = MetaNode('NewNode', (_NODECLASSES[self.baseClassName],), {})
-        NodeClass.__inputs__ = OrderedDict()
-        NodeClass._addInput(data={'name': 'Input',
-                                  'varType': object}, cls=NodeClass)
-        NodeClass.__outputs__ = OrderedDict()
-        NodeClass._addOutput(data={'name': 'Output',
-                                   'varType': object}, cls=NodeClass)
-        newNode = newGraph.spawnNode(NODECLASSES['NewNode'])
+
+        #from PyQt5.QtCore import pyqtRemoveInputHook,pyqtRestoreInputHook
+        #pyqtRemoveInputHook()
+        #import pdb
+        #pdb.set_trace()
+
+
+        NewNode = MetaNode.makeManaged(
+            'NewNode',
+            _NODECLASSES[self.baseClassName],
+            inputs = [{
+                'name':'Input',
+                'varType': None.__class__
+            }],
+            outputs = [{
+                'name':'Output',
+                'varType': None.__class__
+            }],
+            nosafe = True
+        )
+        newNode = newGraph.spawnNode(NewNode)
         newNode.__pos__ = (0,-135)
         self.currentNodeName = 'NewNode'
         # l.addWidget(newPainter)
@@ -1013,8 +1062,11 @@ class NodeWizardDialog(QDialog):
         node = self.painter.nodes[0]
         self.graph.deleteNode(node)
         self.painter.unregisterNode(node)
+        return node
 
     def spawnNode(self, nodeName, nodeClassName):
+        # using NODECLASSES instead of _NODECLASSES as the latter would also
+        # allow to spawn abstract nodes which does not make sense at all_
         NodeClass = _NODECLASSES[nodeClassName]
         # NodeClass = MetaNode(nodeName, (_NODECLASSES[self.baseClassName],), {})
         # try:
@@ -1045,10 +1097,18 @@ class NodeWizardDialog(QDialog):
         self.painter.repaint()
 
     def startWizard(self):
+        
         try:
             self.editWidget.deleteLater()
         except:
             pass
+        else:
+            if self.addSaveButton:
+                ol = self.editWidget.layout()
+                ol.removeWidget(self.spacer)
+                self.spacer.setParent(self)
+                ol.removeWidget(self.saveButton)
+                self.saveButton.setParent(self)
         editWidget = QWidget(self)
         l = QFormLayout()
         l.setFormAlignment(Qt.AlignHCenter)
@@ -1066,9 +1126,18 @@ class NodeWizardDialog(QDialog):
         selectBase = QComboBox(editWidget)
         selectBase.currentTextChanged.connect(self.onBaseChange)
         newFont = QFont("FontFamily", italic=True, weight=3)
-        for i, key in enumerate(['Node'] + sorted(list(_NODECLASSES.keys()))):
+        for i, ( key,value ) in enumerate(
+            [('Node',None)] +
+             sorted(
+                list((
+                    (_key,_value)
+                    for _key,_value in _NODECLASSES.items()
+                    if _value != self.painter.nodes[0].__class__
+                ))
+            )
+        ):
             selectBase.addItem(key)
-            if key in MANAGEDNODECLASSES.keys():
+            if ismanaged(value):
                 selectBase.setItemData(i, newFont, Qt.FontRole)
         selectBase.setCurrentText('Node')
         self.selectBase = selectBase
@@ -1086,34 +1155,129 @@ class NodeWizardDialog(QDialog):
         ll.addWidget(editWidget)
 
     def onBaseChange(self, text):
-        self.removeNode()
-        try:
-            self.spawnNode(text, text)
-        except:
-            print('Cannot spawn Node of Class {}.'.format(text))
-        if text in MANAGEDNODECLASSES:
-            self.editButton.setEnabled(True)
-            # pass
-        else:
-            # pass
-            self.editButton.setEnabled(False)
-        self.baseClassName = text
+        _oldnodeclass = self.painter.nodes[0].__class__
+        if _oldnodeclass.__bases__[0].__name__ != text:
+            self.removeNode()
+            # _NODECLASSES here as this just changes the
+            # the display of the node layout of the basic node
+            # managed ones may directly be edited all others are just
+            # displayed to simplify selection of proper node for creation
+            # of new managed mode
+            _newNodeBase = _NODECLASSES[text]
+            if ismanaged(_newNodeBase):
+                self.editButton.setEnabled(True)
+                _makename = _newNodeBase.__name__
+                _makebase = _newNodeBase.__bases__[0]
+            else:
+                _makename = _oldnodeclass.__name__
+                _makebase = _newNodeBase
+                self.editButton.setEnabled(False)
+            _needdummyinputs = len(_newNodeBase.__inputs__) < 1 or ( len(_newNodeBase.__inputs__) == 1 and 'Trigger' in _newNodeBase.__inputs__)
+            _needdummyoutputs = len(_newNodeBase.__outputs__) < 1
+            if _needdummyinputs or _needdummyoutputs:
+                _nodebasebody = _newNodeBase.toDict()
+                if _needdummyinputs:
+                    _nodebasebody['inputs'] = _nodebasebody.get('inputs',[]) +[{
+                        'name':'Input',
+                        'varType': None.__class__
+                    }]
+                    self._defaultinput = True
+                else:
+                    _defaultinput = False
+                if _needdummyoutputs:
+                    _nodebasebody['outputs'] = _nodebasebody.get('outputs',[]) + [{
+                        'name':'Output',
+                        'varType': None.__class__
+                    }]
+                    self._defaultoutput = True
+                else:
+                    self._defaultoutput = False
+                _newNodeClass = MetaNode.makeManaged(
+                    _makename,
+                    _makebase,
+                    inputs = _nodebasebody['inputs'],
+                    outputs = _nodebasebody['outputs'],
+                    nodemethods = _nodebasebody,
+                    nosafe = True
+                )
+            else:
+                _newNodeClass = _newNodeBase
+            _currentNodeName = self.currentNodeName
+            try:
+                _newNode = self.graph.spawnNode(_newNodeClass)
+                _currentNodeName = text
+            except:
+                print('Cannot spawn Node of Class {}.'.format(text))
+                if ismanaged(_newNodeClass):
+                    MetaNode.revertUnsavedManaged(_newNodeClass)
+                try:
+                    _newNode=self.graph.spawnNode(_oldnodeclass)
+                except:
+                    print('Total failure in updating wizard exiting')
+                    raise
+            else:
+                if ismanaged(_oldnodeclass):
+                    MetaNode.revertUnsavedManaged(_oldnodeclass)
+            _newNode.__pos__ = (0, -135)
+            self.currentNodeName = _currentNodeName
+            self.baseClassName = text
         self.painter.repaint()
 
 
     def editNode(self):
-        filePath = os.path.join(customNodesPath, 'managedNodes.dat')
-        with open(filePath, 'r') as fp:
-            for datum in fp.readlines():
-                try:
-                    name, datum = datum.strip().split(':::')
-                except ValueError:
-                    continue
-                if name == self.baseClassName:
-                    datum = datum
-                    self.fromJson(datum)
-                else:
-                    continue
+
+        #from PyQt5.QtCore import pyqtRemoveInputHook,pyqtRestoreInputHook
+        #pyqtRemoveInputHook()
+        #import pdb
+        #pdb.set_trace()
+
+        _nodetoedit = _NODECLASSES.get(self.baseClassName,None)
+        if _nodetoedit is not None and MetaNode.ismanaged(_nodetoedit):
+            node = self.painter.nodes[0]
+            MetaNode.revertUnsavedManaged(node.__class__)
+            if _nodetoedit == node.__class__:
+                _nodetoedit = _NODECLASSES.get(self.baseClassName,None)
+                assert(ismanaged(_nodetoedit),"editNode may only called when baseClassName selected by onBaseChange is managed")
+            self.fromClass(_nodetoedit)
+            self.graph.deleteNode(node)
+            self.painter.unregisterNode(node)
+            self.setupCodeString = _nodetoedit.__setup_source__ if _nodetoedit.__setup_source__ is not None else 'super(type(self), self).setup()'
+            _nodebaseclass = _nodetoedit.__bases__[0]
+            self.runCodeString = _nodetoedit.__run_source__ if _nodetoedit.__run_source__ is not None else 'super(type(self), self).run()'
+            if len(self.inputs) < 1 and ( len(_nodebaseclass.__inputs__) < 1 or ( len(_nodebaseclass.__inputs__) == 1 and 'TRIGGER' in _nodebaseclass.__inputs__ )) :
+                _inputs = [dict(
+                    name = 'Input',
+                    varType = None.__class__
+                )]
+                self._defaultinput = True
+            else:
+                _inputs = self.inputs.values()
+                self._defaultinput = False
+            if len(self.outputs) > 0 or len(_nodebaseclass.__outputs__) > 0:
+                _outputs = self.outputs.values()
+                self._defaultoutput = False
+            else:
+                _outputs = [dict(
+                    name = 'Output',
+                    varType = None.__class__
+                )]
+                self._defaultoutput = True
+            NodeClass = MetaNode.makeManaged(
+                _nodetoedit.__name__,
+                _nodebaseclass,
+                nodemethods = dict(
+                    setup = self.setupCodeString,
+                    run = self.runCodeString
+                ),
+                inputs = _inputs,
+                outputs = _outputs,
+                nosafe = True
+            )
+            newNode = self.graph.spawnNode(NodeClass)
+            newNode.__pos__ = (0, -135)
+            if self.baseClassName == NodeClass.__name__:
+                self.baseClassName = NodeClass.__bases__[0].__name__
+            self.name = NodeClass
         self.painter.repaint()
         self.ready = True
         self.editInput()
@@ -1121,7 +1285,6 @@ class NodeWizardDialog(QDialog):
     def subclassNode(self):
         self.ready = True
         self.baseClassName = self.selectBase.currentText()
-        # baseClass = _NODECLASSES[self.baseClassName]
         self.editName()
 
 
@@ -1132,6 +1295,13 @@ class NodeWizardDialog(QDialog):
             self.editWidget.deleteLater()
         except:
             pass
+        else:
+            if self.addSaveButton:
+                ol = self.editWidget.layout()
+                ol.removeWidget(self.spacer)
+                self.spacer.setParent(self)
+                ol.removeWidget(self.saveButton)
+                self.saveButton.setParent(self)
         nameEdit = QWidget(self)
         l = QFormLayout()
         l.addRow(HeadlineLabel2('Set Node Name'))
@@ -1145,50 +1315,93 @@ class NodeWizardDialog(QDialog):
 
         ll = self.layout()
         ll.addWidget(nameEdit)
+        try:
+            self.editWidget.deleteLater()
+        except:
+            pass
+        else:
+            if self.addSaveButton:
+                ol = self.editWidget.layout()
+                ol.removeWidget(self.spacer)
+                self.spacer.setParent(self)
+                ol.removeWidget(self.saveButton)
+                self.saveButton.setParent(self)
         self.editWidget = nameEdit
 
     def confirmName(self):
-        data = self.toDict()
+
+        #from PyQt5.QtCore import pyqtRemoveInputHook,pyqtRestoreInputHook
+        #pyqtRemoveInputHook()
+        #import pdb
+        #pdb.set_trace()
+
+        print("cn",self.name)
         newName = self.e.text()
-        if not newName or ' ' in newName:
-            return
-        if newName in _NODECLASSES:
-            return
-        try:
-            del NODECLASSES[self.currentNodeName]
-        except KeyError:
-            print('Failed to delete tmp node:', self.currentNodeName)
+        if newName is None or validatenodename(newName) is None:
+            return # TODO indicate name error on text edit
         node = self.painter.nodes[0]
-        self.graph.deleteNode(node)
-        self.painter.unregisterNode(node)
-
-        NodeClass = MetaNode(newName, (_NODECLASSES[self.baseClassName],), {})
-        self._fromDict(data)
-        try:
-            NodeClass.__inputs__ =_NODECLASSES[self.baseClassName].__inputs__.copy()
-        except AttributeError:
-            NodeClass.__inputs__ = OrderedDict()
-        if not self.inputs and len(list(NodeClass.__inputs__.keys())) == 1:
-            NodeClass._addInput(data={'name': 'Input',
-                                      'varType': object}, cls=NodeClass)
-        for inp in self.inputs.values():
-            NodeClass._addInput(data=inp, cls=NodeClass)
-
-        try:
-            NodeClass.__outputs__ =_NODECLASSES[self.baseClassName].__outputs__.copy()
-        except AttributeError:
-            NodeClass.__outputs__ = OrderedDict()
-        if not self.outputs:
-            NodeClass._addOutput(data={'name': 'Output',
-                                       'varType': object}, cls=NodeClass)
+        _nodeclass = node.__class__
+        if self.name is not None and len(self.name) > 0:
+            _nodebaseclass = _nodeclass.__bases__[0]
+            if _nodebaseclass.__name__ == self.baseClassName and node.__class__.__name__ == self.name:
+                _renamecurrent = self.name
+            else:
+                _renamecurrent = None
         else:
-            for out in self.outputs.values():
-                NodeClass._addOutput(data=out, cls=NodeClass)
-        newNode = self.graph.spawnNode(NODECLASSES[newName])
-        newNode.__pos__ = (0, -135)
-
-        self.name = newName
-
+            # backup baseClassName
+            _baseclassname = self.baseClassName
+            MetaNode.revertUnsavedManaged(_nodeclass)
+            _nodeclass = _NODECLASSES[self.baseClassName]
+            _nodebaseclass = _nodeclass
+            #self.fromClass(_nodeclass)
+            # restore baseClassName
+            self.baseClassName = _baseclassname
+            _renamecurrent = None
+        # if self.inputs is empty fake em
+        if _renamecurrent != newName:
+            if len(self.inputs) < 1 and ( len(_nodebaseclass.__inputs__) < 1 or ( len(_nodebaseclass.__inputs__) == 1 and 'TRIGGER' in _nodebaseclass.__inputs__ )) :
+                _inputs = [dict(
+                    name = 'Input',
+                    varType = None.__class__
+                )]
+                self._defaultinput = True
+            else:
+                _inputs = self.inputs.values()
+                self._defaultinput = False
+            if len(self.outputs) > 0 or len(_nodeclass.__outputs__) > 0:
+                _outputs = self.outputs.values()
+                self._defaultoutput = False
+            else:
+                _outputs = [dict(
+                    name = 'Output',
+                    varType = None.__class__
+                )]
+                self._defaultoutput = True
+            try:
+                NodeClass = MetaNode.makeManaged(
+                    newName,
+                    self.baseClassName,
+                    rename = _renamecurrent,
+                    inputs = _inputs,
+                    outputs = _outputs,
+                    nodemethods = dict(
+                        run = self.runCodeString,
+                        setup = self.setupCodeString,
+                    ),
+                    nosafe = True
+                )
+            except NodeUpdateError as _errors:
+                print("{}\n\nrun:\n----\n{}\n\nsetup:\n------\n{}\n".format(_errors,_errors.runerror,_errors.setuperror))
+                return
+            except ManagedNodeError:
+                return # Node is not managed or new name would overwrite non managed node indicate error on text edit
+            self.graph.deleteNode(node)
+            self.painter.unregisterNode(node)
+            if _renamecurrent is None:
+                MetaNode.revertUnsavedManaged(node.__class__)
+            newNode = self.graph.spawnNode(NodeClass)
+            newNode.__pos__ = (0, -135)
+            self.name = newName
         self.updateNode()
         self.addSaveButton = True
         self.editInput()
@@ -1200,6 +1413,13 @@ class NodeWizardDialog(QDialog):
             self.editWidget.deleteLater()
         except:
             pass
+        else:
+            if self.addSaveButton:
+                ol = self.editWidget.layout()
+                ol.removeWidget(self.spacer)
+                self.spacer.setParent(self)
+                ol.removeWidget(self.saveButton)
+                self.saveButton.setParent(self)
         inputWidget = QWidget(self)
         self.editWidget = inputWidget
         self.layout().addWidget(inputWidget)
@@ -1263,6 +1483,13 @@ class NodeWizardDialog(QDialog):
             self.editWidget.deleteLater()
         except:
             pass
+        else:
+            if self.addSaveButton:
+                ol = self.editWidget.layout()
+                ol.removeWidget(self.spacer)
+                self.spacer.setParent(self)
+                ol.removeWidget(self.saveButton)
+                self.saveButton.setParent(self)
 
         inputWidget = QWidget(self)
         self.editWidget = inputWidget
@@ -1280,18 +1507,19 @@ class NodeWizardDialog(QDialog):
 
         cls = self.getNodeClassObject()
 
-        self.removeButtons = []
-        for i, inp in enumerate(cls.__inputs__.items()):
-            inpName, inp = inp
+        self.removeButtons = {}
+        # preset i with 2 to ensure in case no inputs defined yet
+        # or default input not available that headlines are not covered
+        # by add input line. This will be used as start value for enumerate
+        i = 2
+        for i, (inpName,inp) in enumerate(cls.__inputs__.items(),i):
             if inp.name == 'TRIGGER':
                 continue
             removeButton = QPushButton('Remove')
-            self.removeButtons.append(removeButton)
+            self.removeButtons[removeButton] = inpName
             removeButton.pressed.connect(self.removeInput)
 
-
-            i+=2
-            if inpName == 'Input':
+            if inpName == 'Input' and self._defaultinput:
                 continue
             listBox = QCheckBox()
             listBox.setChecked(inp.list)
@@ -1301,13 +1529,26 @@ class NodeWizardDialog(QDialog):
             defaultEdit.setText(str(inp.default))
             nameEdit = QLineEdit()
             nameEdit.setText(inp.name)
+            typeEdit = TypeBox(current=inp.varType.__name__)
+            selectEdit = TypeBox()
+            if inpName not in self.inputs:
+                listBox.setEnabled(False)
+                typeEdit.setEnabled(False)
+                optBox.setEnabled(False)
+                defaultEdit.setEnabled(False)
+                nameEdit.setEnabled(False)
+                removeButton.setEnabled(False)
+                removeButton.setText('Base')
+            #    #disabled for now as set to None anyway below. change the commenting 
+            #    # of these two and the follwoing two lines to activate select
+            #    selectEdit.setEnabled(False)
+            selectEdit.setEnabled(False)
             l.addWidget(nameEdit, i,0)
-            l.addWidget(TypeBox(current=inp.varType.__name__), i, 1)
+            l.addWidget(typeEdit, i, 1)
             l.addWidget(defaultEdit, i,2)
-            l.addWidget(TypeBox(), i,3)
+            l.addWidget(selectEdit, i,3)
             l.addWidget(listBox, i,4)
             l.addWidget(optBox, i,5)
-
             l.addWidget(removeButton, i, 6)
 
         addButton = QPushButton('Add')
@@ -1322,6 +1563,9 @@ class NodeWizardDialog(QDialog):
         newNameEdit.setText('newInput')
         newTypeBox = TypeBox()
         newSelect = TypeBox() ### Placeholder
+        #    #disabled for now as set to None anyway below. change the commenting 
+        #    # of these two and the follwoing line to activate select
+        newSelect.setEnabled(False)
         i+=1
         l.addWidget(newNameEdit, i, 0)
         l.addWidget(newTypeBox, i, 1)
@@ -1345,6 +1589,12 @@ class NodeWizardDialog(QDialog):
             l.addWidget(self.saveButton, i+2,0,1,7 )
 
     def addInput(self):
+
+        #from PyQt5.QtCore import pyqtRemoveInputHook,pyqtRestoreInputHook
+        #pyqtRemoveInputHook()
+        #import pdb
+        #pdb.set_trace()
+
         node = self.painter.nodes[0]
         name = node.__class__.__name__
         cls = node.__class__
@@ -1357,31 +1607,42 @@ class NodeWizardDialog(QDialog):
         select = self.newSelect.getType()
         select = None
 
+        if self._defaultinput:
+            cls._removeInput('Input')
+            self._defaultinput = False
         data = {'name': newName,
                 'varType': valType,
                 'list': isList,
                 'optional': isOptional,
                 'default': default,
                 'select': select}
-        cls._addInput(data=data, cls=cls)
+        cls._addInput(**data)
         self.inputs[newName] = data
-
-        if 'Input' in cls.__inputs__:
-            del cls.__inputs__['Input']
 
         self.updateNode()
         self.editInput()
 
     def removeInput(self):
+
+        #from PyQt5.QtCore import pyqtRemoveInputHook,pyqtRestoreInputHook
+        #pyqtRemoveInputHook()
+        #import pdb
+        #pdb.set_trace()
+
         cls = self.getNodeClassObject()
 
-        i = self.removeButtons.index(self.sender())
-        key = list(cls.__inputs__.keys())[i]
+        key =  self.removeButtons[self.sender()]
+        #key = list(cls.__inputs__.keys())[i]
         del self.inputs[key]
-        del cls.__inputs__[key]
-        if not cls.__inputs__.keys():
-            cls._addInput(data={'name': 'Input',
-                                      'varType': object}, cls=cls)
+        cls._removeInput(key)
+        if len(self.inputs) < 1 and ( len(cls.__inputs__) < 1 or ( len(cls.__inputs__) == 1 and 'TRIGGER' in cls.__inputs__ )) :
+            cls._addInput(**{
+                'name': 'Input',
+                'varType': None.__class__
+            })
+            self._defaultinput = True
+        else:
+            self._defaultinput = False
         self.updateNode()
         self.editInput()
 
@@ -1392,6 +1653,13 @@ class NodeWizardDialog(QDialog):
             self.editWidget.deleteLater()
         except:
             pass
+        else:
+            if self.addSaveButton:
+                ol = self.editWidget.layout()
+                ol.removeWidget(self.spacer)
+                self.spacer.setParent(self)
+                ol.removeWidget(self.saveButton)
+                self.saveButton.setParent(self)
 
         inputWidget = QWidget(self)
         self.editWidget = inputWidget
@@ -1409,24 +1677,28 @@ class NodeWizardDialog(QDialog):
 
         cls = self.getNodeClassObject()
 
-        self.removeButtons = []
-        for i, out in enumerate(cls.__outputs__.items()):
+        self.removeButtons = {}
+        i  = 2
+        for i, (outName,out) in enumerate(cls.__outputs__.items(),i):
             removeButton = QPushButton('Remove')
-            self.removeButtons.append(removeButton)
+            self.removeButtons[removeButton] = outName
             removeButton.pressed.connect(self.removeOutput)
-
-            outName, out = out
-            i+=2
-            if outName == 'Output':
+            if outName == 'Output' and self._defaultoutput:
                 continue
             listBox = QCheckBox()
             listBox.setChecked(out.list)
             nameEdit = QLineEdit()
             nameEdit.setText(out.name)
+            typeEdit = TypeBox(current=out.varType.__name__)
+            if outName not in self.outputs:
+                listBox.setEnabled(False)
+                typeEdit.setEnabled(False)
+                nameEdit.setEnabled(False)
+                removeButton.setEnabled(False)
+                removeButton.setText('Parent')
             l.addWidget(nameEdit, i,0)
-            l.addWidget(TypeBox(current=out.varType.__name__), i, 1)
+            l.addWidget(typeEdit, i, 1)
             l.addWidget(listBox, i,2)
-
             l.addWidget(removeButton, i, 3)
 
         addButton = QPushButton('Add')
@@ -1451,6 +1723,12 @@ class NodeWizardDialog(QDialog):
             l.addWidget(self.saveButton, i+2,0,1,7 )
 
     def addOutput(self):
+
+        #from PyQt5.QtCore import pyqtRemoveInputHook,pyqtRestoreInputHook
+        #pyqtRemoveInputHook()
+        #import pdb
+        #pdb.set_trace()
+
         node = self.painter.nodes[0]
         cls = node.__class__
 
@@ -1458,28 +1736,38 @@ class NodeWizardDialog(QDialog):
         newName = self.newNameEditO.text()
         valType = self.newTypeBoxO.getType()
 
+        if self._defaultoutput:
+            cls._removeOutput('Output')
+            self._defaultoutput = False
         data = {'name': newName,
                 'varType': valType,
                 'list': isList}
-        cls._addOutput(data=data, cls=cls)
+        cls._addOutput(**data)
         self.outputs[newName] = data
-
-        if 'Output' in cls.__outputs__:
-            del cls.__outputs__['Output']
 
         self.updateNode()
         self.editOutput()
 
     def removeOutput(self):
+
+        #from PyQt5.QtCore import pyqtRemoveInputHook,pyqtRestoreInputHook
+        #pyqtRemoveInputHook()
+        #import pdb
+        #pdb.set_trace()
+
         cls = self.getNodeClassObject()
 
-        i = self.removeButtons.index(self.sender())
-        key = list(cls.__outputs__.keys())[i]
-        del cls.__outputs__[key]
+        key = self.removeButtons[self.sender()]
+        cls._removeOutput(key)
         del self.outputs[key]
-        if not cls.__outputs__.keys():
-            cls._addOutput(data={'name': 'Output',
-                                      'varType': object}, cls=cls)
+        if len(self.outputs) < 0 and len(cls.__outputs__) < 1:
+            cls._addOutput(**{
+                'name': 'Output',
+                'varType': None.__class__
+            })
+            self._defaultoutput = True
+        else:
+            self._defaultoutput = False
         self.updateNode()
         self.editOutput()
 
@@ -1490,6 +1778,13 @@ class NodeWizardDialog(QDialog):
             self.editWidget.deleteLater()
         except:
             pass
+        else:
+            if self.addSaveButton:
+                ol = self.editWidget.layout()
+                ol.removeWidget(self.spacer)
+                self.spacer.setParent(self)
+                ol.removeWidget(self.saveButton)
+                self.saveButton.setParent(self)
         inputWidget = QWidget(self)
         self.editWidget = inputWidget
         self.layout().addWidget(inputWidget)
@@ -1542,27 +1837,25 @@ class NodeWizardDialog(QDialog):
         return cls
 
     def updateNode(self):
+
+        #from PyQt5.QtCore import pyqtRemoveInputHook,pyqtRestoreInputHook
+        #pyqtRemoveInputHook()
+        #import pdb
+        #pdb.set_trace()
+
         node = self.getNode()
         name = self.getNodeName()
-        runCodeString = 'def run(self):\n ' + '\n '.join(self.runCodeString.split('\n'))
-        scope = {}
-        exec(runCodeString, scope)
-        cls = self.getNodeClassObject()
-
-        # ---Magic line. Don't touch!---
-        cls.run = scope['run'].__get__(None, cls)
-        # ------------------------------
-
-        setupCodeString = 'def setup(self):\n ' + '\n '.join(self.setupCodeString.split('\n'))
-
-        scope = {}
-        exec(setupCodeString, scope)
-        # cls = self.getNodeClassObject()
-
-        # ---Magic line. Don't touch!---
-        cls.setup = scope['setup'].__get__(None, cls)
-        # ------------------------------
-
+        try:
+            MetaNode.updateManaged(
+                self.getNodeClassObject(),
+                dict(
+                    run = self.runCodeString,
+                    setup = self.setupCodeString
+                )
+            )
+        except NodeUpdateError as _errors:
+            print("{}\n\nrun:\n----\n{}\n\nsetup:\n------\n{}\n".format(_errors,_errors.runerror,_errors.setuperror))
+            return
         self.graph.deleteNode(node)
         self.painter.unregisterNode(node)
         newNode = self.graph.spawnNode(NODECLASSES[name])
@@ -1571,187 +1864,222 @@ class NodeWizardDialog(QDialog):
 
     def toString(self):
         string = 'class {}({}):\n '.format(self.name, self.baseClassName)
-        string += '\n '.join(["Input('{name}', {varType}, list={list}, "
-                              "default='{default}', opt={opt})".format(name=inp['name'],
-                                                                       varType=inp['varType'].__name__,
-                                                                       list='True' if inp['list'] else 'False',
-                                                                       opt='True' if inp['optional'] else 'False',
-                                                                       default=inp['default'],
-                                                                       select=inp['select']) for inp in self.inputs.values()])
+        # need to turn of pylint error which is not aware of that format supports parameter names not just indices
+        #pylint: disable=E1126
+        string += '\n '.join((
+            "{dummy}Input('{name}', {varType}, list={list}, default='{default}', select={select}, opt={opt})".format(
+                name=_inp['name'],
+                varType=_inp['varType'].__name__,
+                list='True' if _inp['list'] else 'False',
+                opt='True' if _inp['optional'] else 'False',
+                default=_inp['default'],
+                select=_inp['select'],
+                dummy=('*' if self._defaultinput and _inp['name'] != 'TRIGGER' else '')
+            )
+            for _inp in self.inputs.values()
+        ))
         string += '\n '
-        string += '\n '.join(["Output('{name}', {varType},"
-                              " list={list})".format(name=out['name'],
-                                                     varType=out['varType'].__name__,
-                                                     list='True' if out['list'] else 'False') for out in self.outputs.values()])
+        string += '\n '.join((
+            "{dummy}Output('{name}', {varType}, list={list})".format(
+                name=out['name'],
+                varType=out['varType'].__name__,
+                list='True' if out['list'] else 'False',
+                dummy=('*' if self._defaultoutput else '')
+            )
+            for out in self.outputs.values()
+        ))
+        #pylint: enable=E1126
 
         string += '\n\n def setup(self):\n   '
-        string += '\n   '.join([line for line in self.setupCodeString.split('\n')])
+        string += '\n   '.join((line for line in self.setupCodeString.split('\n')))
 
         string += '\n\n def run(self):\n   '
-        string += '\n   '.join([line for line in self.runCodeString.split('\n')])
+        string += '\n   '.join((line for line in self.runCodeString.split('\n')))
         return string
 
-    def toDict(self):
-        return {'name': self.name,
-                'baseClass': self.baseClassName,
-                'setup': self.setupCodeString,
-                'inputs': deepcopy(self.inputs),
-                'outputs': deepcopy(self.outputs.copy()),
-                'run': self.runCodeString}
+    ##def toDict(self):
+    ##    return {'name': self.name,
+    ##            'baseClass': self.baseClassName,
+    ##            'setup': self.setupCodeString,
+    ##            'inputs': self.inputs.values(),
+    ##            'outputs': self.outputs.values(),
+    ##            'run': self.runCodeString}
 
+    def fromClass(self,cls):
+        self.name = cls.__name__
+        self.inputs = OrderedDict((
+            (_name,_inp.toDict()) for _name,_inp in cls.__classinputs__.items()
+        ))
+        self.outputs = OrderedDict((
+            (_name,_out.toDict()) for _name,_out in cls.__classoutputs__.items()
+        ))
+        self.setupCodeString = cls.__setup_source__ if cls.__setup_source__ is not None else 'super(type(self), self).setup()'
+        self.runCodeString = cls.__run_source__ if cls.__run_source__ is not None else 'super(type(self), self).run()'
+        
     def fromDict(self, data):
         self.name = data['name']
         self._fromDict(data)
 
-    def _fromDict(self, data):
-        self.baseClassName = data['baseClass']
-        self.setupCodeString = data['setup']
-        self.inputs = data['inputs']
-        self.outputs = data['outputs']
-        self.runCodeString = data['run']
+    ##def _fromDict(self, data):
+    ##    self.baseClassName = data['baseClass']
+    ##    _inputs = data.get('inputs',OrderedDict())
+    ##    self.inputs = (
+    ##        _inputs 
+    ##        if isinstance(_inputs,OrderedDict) else
+    ##        OrderedDict(
+    ##            ( _inp['name'],_inp) for _inp in (
+    ##                 _inputs.values() if isinstance(_inputs,dict) else _inputs
+    ##            )
+    ##        )
+    ##    )
+    ##    _outputs = data.get('outputs',OrderedDict())
+    ##    self.outputs = (
+    ##        _outputs 
+    ##        if isinstance(_outputs,OrderedDict) else
+    ##        OrderedDict(
+    ##            ( _out['name'],_out) for _out in ( _outputs.values() if isinstance(_outputs,dict) else _outputs)
+    ##        )
+    ##    )
+    ##    self.setupCodeString = data.get('setup','super(type(self), self).setup()')
+    ##    self.runCodeString = data.get('run','super(type(self), self).run()')
 
-    def toJson(self):
-        data = self.toDict()
-        for k, input in data['inputs'].items():
-            input['varType'] = input['varType'].__name__
-        for k, output in data['outputs'].items():
-            output['varType'] = output['varType'].__name__
-        return json.dumps(data)
+    ##def toJson(self):
+    ##    data = self.toDict()
+    ##    for k, input in data['inputs'].items():
+    ##        input['varType'] = input['varType'].__name__
+    ##    for k, output in data['outputs'].items():
+    ##        output['varType'] = output['varType'].__name__
+    ##    return json.dumps(data)
 
-    @staticmethod
-    def fromJsonStatic(data):
-        try:
-            data = json.loads(data)
-        except json.decoder.JSONDecodeError:
-            logger.error('Cannot load managed node class. String <{}> is invalid JSON.'.format(data))
-            return None
-        else:
-            logger.debug('Creating managed node class <{}>. Base class is <{}>.'.format(data['name'], data['baseClass']))
-        for k, input in data['inputs'].items():
-            input['varType'] = TypeBox.str2Type(input['varType'])
-        for k, output in data['outputs'].items():
-            output['varType'] = TypeBox.str2Type(output['varType'])
+    ## # TODO remove when not needed any more, node management done by nodeLis solemny
+    ## @staticmethod
+    ## def fromJsonStatic(data):
+    ##     try:
+    ##         data = json.loads(data)
+    ##     except json.decoder.JSONDecodeError:
+    ##         logger.error('Cannot load managed node class. String <{}> is invalid JSON.'.format(data))
+    ##         return None
+    ##     else:
+    ##         logger.debug('Creating managed node class <{}>. Base class is <{}>.'.format(data['name'], data['baseClass']))
+    ##     for k, input in data['inputs'].items():
+    ##         input['varType'] = TypeBox.str2Type(input['varType'])
+    ##     for k, output in data['outputs'].items():
+    ##         output['varType'] = TypeBox.str2Type(output['varType'])
 
 
 
-        NodeClass = MetaNode(data['name'], (_NODECLASSES[data['baseClass']],), {})
-        try:
-            NodeClass.__inputs__ = NodeClass.__bases__[0].__inputs__.copy()
-        except AttributeError as e:
-            NodeClass.__inputs__ = OrderedDict()
-        try:
-            NodeClass.__outputs__ = NodeClass.__bases__[0].__outputs__.copy()
-        except AttributeError:
-            NodeClass.__outputs__ = OrderedDict()
+    ##     NodeClass = MetaNode(data['name'], (_NODECLASSES[data['baseClass']],), {})
+    ##     try:
+    ##         NodeClass.__inputs__ = NodeClass.__bases__[0].__inputs__.copy()
+    ##     except AttributeError as e:
+    ##         NodeClass.__inputs__ = OrderedDict()
+    ##     try:
+    ##         NodeClass.__outputs__ = NodeClass.__bases__[0].__outputs__.copy()
+    ##     except AttributeError:
+    ##         NodeClass.__outputs__ = OrderedDict()
 
-        # NodeClass.__inputs__ = OrderedDict()
-        for inp in data['inputs'].values():
-            NodeClass._addInput(data=inp, cls=NodeClass)
+    ##     # NodeClass.__inputs__ = OrderedDict()
+    ##     for inp in data['inputs'].values():
+    ##         NodeClass._addInput(data=inp)
 
-        # NodeClass.__outputs__ = OrderedDict()
-        for out in data['outputs'].values():
-            NodeClass._addOutput(data=out, cls=NodeClass)
+    ##     # NodeClass.__outputs__ = OrderedDict()
+    ##     for out in data['outputs'].values():
+    ##         NodeClass._addOutput(data=out)
 
-        runCodeString = 'def run(self):\n ' + '\n '.join(data['run'].split('\n'))
-        scope = {}
-        exec(runCodeString, scope)
+    ##     runCodeString = 'def run(self):\n ' + '\n '.join(data['run'].split('\n'))
+    ##     scope = {}
+    ##     exec(runCodeString, scope)
 
-        # ---Magic line. Don't touch!---
-        NodeClass.run = scope['run'].__get__(None, NodeClass)
-        # ------------------------------
+    ##     # ---Magic line. Don't touch!---
+    ##     NodeClass.run = scope['run'].__get__(None, NodeClass)
+    ##     # ------------------------------
 
-        setupCodeString = 'def setup(self):\n ' + '\n '.join(data['setup'].split('\n'))
+    ##     setupCodeString = 'def setup(self):\n ' + '\n '.join(data['setup'].split('\n'))
 
-        scope = {}
-        exec(setupCodeString, scope)
-        # cls = self.getNodeClassObject()
+    ##     scope = {}
+    ##     exec(setupCodeString, scope)
+    ##     # cls = self.getNodeClassObject()
 
-        # ---Magic line. Don't touch!---
-        NodeClass.setup = scope['setup'].__get__(None, NodeClass)
-        # ------------------------------
+    ##     # ---Magic line. Don't touch!---
+    ##     NodeClass.setup = scope['setup'].__get__(None, NodeClass)
+    ##     # ------------------------------
 
-        return NodeClass
+    ##     return NodeClass
 
-    def fromJson(self, data):
-        try:
-            data = json.loads(data)
-        except json.decoder.JSONDecodeError:
-            logger.error('Cannot load managed node class. String <{}> is invalid JSON.'.format(data))
-            return None
-        for k, input in data['inputs'].items():
-            input['varType'] = TypeBox.str2Type(input['varType'])
-        for k, output in data['outputs'].items():
-            output['varType'] = TypeBox.str2Type(output['varType'])
-        self.fromDict(data)
+    ## # TODO remove when not needed any more
+    ## def fromJson(self, data):
+    ##     try:
+    ##         data = json.loads(data)
+    ##     except json.decoder.JSONDecodeError:
+    ##         logger.error('Cannot load managed node class. String <{}> is invalid JSON.'.format(data))
+    ##         return None
+    ##     for k, input in data['inputs'].items():
+    ##         input['varType'] = TypeBox.str2Type(input['varType'])
+    ##     for k, output in data['outputs'].items():
+    ##         output['varType'] = TypeBox.str2Type(output['varType'])
+    ##     self.fromDict(data)
 
-        node = self.painter.nodes[0]
-        self.graph.deleteNode(node)
-        self.painter.unregisterNode(node)
-        newName = self.name
-        NodeClass = MetaNode(newName, (_NODECLASSES[self.baseClassName],), {})
-        self._fromDict(data)
-        NodeClass.__inputs__ = OrderedDict()
-        if not self.inputs:
-            NodeClass._addInput(data={'name': 'Input',
-                                      'varType': object}, cls=NodeClass)
-        else:
-            for inp in self.inputs.values():
-                NodeClass._addInput(data=inp, cls=NodeClass)
+    ##     node = self.painter.nodes[0]
+    ##     self.graph.deleteNode(node)
+    ##     self.painter.unregisterNode(node)
+    ##     newName = self.name
+    ##     NodeClass = MetaNode(newName, (_NODECLASSES[self.baseClassName],), {})
+    ##     self._fromDict(data)
+    ##     NodeClass.__inputs__ = OrderedDict()
+    ##     if not self.inputs:
+    ##         NodeClass._addInput(**{
+    ##             'name': 'Input',
+    ##             'varType': object
+    ##         })
+    ##     else:
+    ##         for inp in self.inputs.values():
+    ##             NodeClass._addInput(data=inp)
 
-        NodeClass.__outputs__ = OrderedDict()
-        if not self.outputs:
-            NodeClass._addOutput(data={'name': 'Output',
-                                       'varType': object}, cls=NodeClass)
-        else:
-            for out in self.outputs.values():
-                NodeClass._addOutput(data=out, cls=NodeClass)
-        newNode = self.graph.spawnNode(NODECLASSES[newName])
-        newNode.__pos__ = (0, -135)
+    ##     NodeClass.__outputs__ = OrderedDict()
+    ##     if not self.outputs:
+    ##         NodeClass._addOutput(**{
+    ##             'name': 'Output',
+    ##             'varType': object
+    ##         })
+    ##     else:
+    ##         for out in self.outputs.values():
+    ##             NodeClass._addOutput(data=out)
+    ##     newNode = self.graph.spawnNode(NODECLASSES[newName])
+    ##     newNode.__pos__ = (0, -135)
 
 
     def closeEvent(self, event):
         cls = self.getNodeClassObject()
-        try:
-            del cls.__inputs__['Input']
-        except KeyError:
-            pass
-        try:
-            del cls.__outputs__['Output']
-        except KeyError:
-            pass
+        if self._defaultinput:
+            cls._removeInput('Input')
+        if self._defaultoutput:
+            cls._removeOutput('Output')
+        _reverted = MetaNode.revertUnsavedManaged(cls)
         if self.updateFunc:
             self.updateFunc()
         super(NodeWizardDialog, self).closeEvent(event)
 
     def saveNodes(self):
-        filePath = os.path.join(customNodesPath, 'managedNodes.dat')
-        if not os.path.isfile(filePath):
-            open(filePath, 'a').close()
-        MANAGEDNODECLASSES[self.name] = self.getNodeClassObject()
+        
 
-        nodeData = OrderedDict()
-        with open(filePath, 'r') as fp:
-            for line in fp.readlines():
-                name, body = line.split(':::')
-                nodeData[name] = line
+        #from PyQt5.QtCore import pyqtRemoveInputHook,pyqtRestoreInputHook
+        #pyqtRemoveInputHook()
+        #import pdb
+        #pdb.set_trace()
 
-        nodeData[self.name] = '{}:::{}\n'.format(self.name, self.toJson())
-        with open(filePath, 'w') as fp:
-            for datum in nodeData.values():
-                fp.write(datum)
-
-
-    @staticmethod
-    def loadManagedNodes():
-        filePath = os.path.join(customNodesPath, 'managedNodes.dat')
-        with open(filePath, 'r') as fp:
-            for datum in fp.readlines():
-                datum = datum.strip().split(':::')[-1]
-                cls = NodeWizardDialog.fromJsonStatic(datum)
-                if cls:
-                    MANAGEDNODECLASSES[cls.__name__] = cls
-                else:
-                    continue
+        try:
+            MetaNode.makeManaged(
+                name = self.name,
+                baseClass = self.baseClassName,
+                inputs = self.inputs.values(),
+                outputs = self.outputs.values(),
+                nodemethods = dict(
+                    run = self.runCodeString,
+                    setup = self.setupCodeString
+                )
+            )
+        except NodeUpdateError as _errors:
+            print("{}\n\nrun:\n----\n{}\n\nsetup:\n------\n{}\n".format(_errors,_errors.runerror,_errors.setuperror))
 
 
 class CodeEdit(QPlainTextEdit):
@@ -1765,40 +2093,26 @@ class HeadlineLabel2(QLabel):
     pass
 
 class TypeBox(QComboBox):
-    TYPEMAP = OrderedDict((('str', str),
-                                ('bool', bool),
-                                ('int', int),
-                                ('float', float),
-                                ('object', object)))
-    for name, t in FLOPPYTYPES.items():
-        TYPEMAP[name] = t
-
-
     def __init__(self, parent=None, current=None):
         super(TypeBox, self).__init__(parent)
-        self.typeMap = OrderedDict((('str', str),
-                                    ('bool', bool),
-                                    ('int', int),
-                                    ('float', float),
-                                    ('object', object)))
-        for name, t in FLOPPYTYPES.items():
-            self.typeMap[name] = t
-        for name in self.typeMap.keys():
+        for name in FLOPPYTYPEMAP.keys():
+            if name == None.__class__.__name__:
+                continue
             self.addItem(name)
 
-        if current:
+        if current and current != None.__class__.__name__ and current in FLOPPYTYPEMAP:
             self.setCurrentText(current)
 
     def getType(self):
-        return self.typeMap[self.currentText()]
+        return FLOPPYTYPEMAP[self.currentText()]
 
     @staticmethod
     def str2Type(string):
-        return TypeBox.TYPEMAP[string]
+        return FLOPPYTYPEMAP[string]
 
 class MainWindow(QMainWindow, Ui_MainWindow):
     def __init__(self, parent=None, painter=None):
-        NodeWizardDialog.loadManagedNodes()
+        #NodeWizardDialog.loadManagedNodes()
         self.closeOnReturn = False
         self.overrideReturn = False
         self.returnValue = None
@@ -2048,7 +2362,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # macroSelector = QComboBox(self.mainToolBar)
         # self.macroSelector = macroSelector
         # macroSelector.addItem('main')
-        # self.knownSubgraphs = {'main'}
+        self.knownSubgraphs = set()
         # macroSelector.currentTextChanged.connect(self.selectSubgraph)
         # macroSelector.activated.connect(self.getSubgraphList)
         # self.mainToolBar.addWidget(macroSelector)

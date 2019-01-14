@@ -24,14 +24,17 @@ make a node for adding two integer available in the editor:
         Output('Sum', int)
 
     def run():
-        self._Sum(self._Integer1 + self._Integer2)
+        self.o_Sum = self.i_Integer1.value + self.i_Integer2.value
 
 
 While most IDEs will complain about the code the Node class's meta class takes care of making the objects 'Input' and
 'Output' available in the class's scope. The meta class will also make sure the editor itself is aware of the newly
 defined node class.
-Every defined input can be accessed either by using 'self.\_\<InputName\>' or by using 'self.inputs['\<InputName\>']''.
-Outputs are set by calling the 'self.\_\<OutputName\>(\<value\>)' object with the new value as argument.
+Every defined input can be accessed either by using 'self.i\_\<InputName\>' or by using 'self.inputs['\<InputName\>']''.
+Outputs are set by assigning the new value to the  'self.o\_\<OutputName\>  property. Outputs can be accessed in general
+either by 'self.o\_\<OutputName\>' or 'self.outputs['\<OutputName\>']''. The 'i_' and 'o_' prefixes thereby allow to
+easily distinguiesh between inputs and outputs.
+NOTE: the \_\<InputName\> and \_\<OutputName\> attribute names are deprecated, support may be removed in future versions.
 
 By default any custom node will wait for all inputs to be set before trying to execute a node. If a more sophisticated
 check is required, the 'Node.check()' method can be overridden.
@@ -80,10 +83,10 @@ The first argument - the Input/Output name - can be any legal Python variable na
         ...
          def run(self):
             super(MyNode, self).run()
-            self._MyInput1 # is a reference to the accordingly named input. The object will have the appropriate type.
-            self._MyInput2 # is a reference to the accordingly named input. The object will have the appropriate type.
-            self._MyOutput1(1) # will set the value of the output with the corresponding name to 1. The type must match.
-            self._MyOutput1(True) # will set the value of the output with the corresponding name to True. The type must match.
+            self.i_MyInput1.value # is a reference to the accordingly named input value. The object will have the appropriate type.
+            self.i_MyInput2.value # is a reference to the accordingly named input value. The object will have the appropriate type.
+            self.o_MyOutput1 = 1 # will set the value of the output with the corresponding name to 1. The type must match.
+            self.o_MyOutput1 = True # will set the value of the output with the corresponding name to True. The type must match.
 ```
 Within the body of the 'run' method any legal Python3 code can be executed. Keep in mind that the method will most likely be executed
 in a seperate thread. To get the most out of that feature it is recommended to use subprocesses and/or C-library calls whenever reasonable.

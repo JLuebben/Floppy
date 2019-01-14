@@ -2,6 +2,7 @@
 
 import sys
 import glob
+import os.path
 # import subprocess
 
 from subprocess import Popen, PIPE, TimeoutExpired
@@ -13,14 +14,24 @@ if __name__ == '__main__':
     report = []
     for file in glob.glob(wd):
         # x = subprocess.call(, shell=True)
-        p = Popen(['python.exe', 'Floppy.py', '--test', '{}'.format(file)], stdin=PIPE, stdout=PIPE, stderr=PIPE)
+        _run = os.path.join(os.path.dirname(__file__),'Floppy.py')
+        try:
+            p = Popen(['python.exe', _run, '--test', '{}'.format(file)], stdin=PIPE, stdout=PIPE, stderr=PIPE)
+        except FileNotFoundError:
+            try:
+                p = Popen(['python3', _run, '--test', '{}'.format(file)], stdin=PIPE, stdout=PIPE, stderr=PIPE)
+            except FileNotFoundError:
+                p = Popen(['python', _run, '--test', '{}'.format(file)], stdin=PIPE, stdout=PIPE, stderr=PIPE)
         try:
             output, err = p.communicate("", timeout=20)
         except TimeoutExpired:
             report.append((file, (1, 'Unkown Error')))
         else:
             rc = p.returncode
-            r = eval(err.decode())
+            try:
+                r = eval(err.decode())
+            except:
+                r = err.decode()
             report.append((file, r))
         # for line in err.readlines():
         #     print(line)

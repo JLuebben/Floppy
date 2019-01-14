@@ -28,9 +28,9 @@ class RunShelxl(ShelxNode):
     def run(self):
         super(RunShelxl, self).run()
         with open('__tmp__.ins', 'w') as fp:
-            fp.write(self._INS)
+            fp.write(self.i_INS.value)
         with open('__tmp__.hkl', 'w') as fp:
-            fp.write(self._HKL)
+            fp.write(self.i_HKL.value)
 
         self.p = subprocess.Popen('shelxl {}'.format('__tmp__'), shell=True, stdout=subprocess.PIPE)
         while True:
@@ -39,10 +39,8 @@ class RunShelxl(ShelxNode):
                 break
             self.stdout += str(line)[1:]
         #os.waitpid(self.p.pid, 0)
-        output = ''
         with open('__tmp__.res', 'r') as fp:
-            output = fp.read()
-        self._RES(output)
+            self.o_RES = fp.read()
         with open('__tmp__.lst', 'r') as fp:
             output = fp.read()
         for line in output.splitlines():
@@ -50,11 +48,11 @@ class RunShelxl(ShelxNode):
                 line = [i for i in line.split() if i]
                 R1 = float(line[2])
                 break
-        self._R1(R1)
-        self._LST(output)
+        self.o_R1 = R1
+        self.o_LST = output
         with open('__tmp__.fcf', 'r') as fp:
             output = fp.read()
-        self._FCF(output)
+        self.o_FCF = output
 
 
         for file in os.listdir():

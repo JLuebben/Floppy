@@ -1,25 +1,11 @@
+import logging
+from collections import OrderedDict
 from PyQt5.QtWidgets import *
-from PyQt5.QtCore import Qt, QPoint, QModelIndex
+from PyQt5.QtCore import Qt
 from PyQt5.QtGui import *
-from floppy.node import NODECLASSES
-import floppy.floppyUi
-import os
-from importlib.machinery import SourceFileLoader
-customNodesPath = os.path.join(os.path.dirname(__file__), 'CustomNodes')
-# try:
-#     [SourceFileLoader(str(i), os.path.join(customNodesPath, path)).load_module() for i, path in enumerate(os.listdir(customNodesPath)) if path.endswith('py')]
-# except Exception as e:
-#     print('Warning: error in custom node:\n{}'.format(str(e)))
+from floppy.node import NODECLASSES,_NODECLASSES
 
-for i, path in enumerate(os.listdir(customNodesPath)):
-    if path.endswith('py'):
-        try:
-            SourceFileLoader(str(i), os.path.join(customNodesPath, path)).load_module()
-        except Exception as e:
-            print('Warning: error in custom node:\n{}'.format(str(e)))
-
-
-
+logger = logging.getLogger("Floppy")
 
 class NodeFilter(QLineEdit):
     """
@@ -51,12 +37,12 @@ class NodeFilter(QLineEdit):
         text = text.lower()
         self.lastText = text
         # nodes = [str(node) for node in nodeList if text in str(node).lower()]
-        if not text.startswith('$'):
+        if not text[:1] != '$':
             nodes = [node for node in NODECLASSES.keys() if text in node.lower()]
         else:
             # nodes = set(self.nodeScanner.getHints(text[1:]) + self.nodeScanner.getHints(text[1:], False))
             text = text[1:]
-            nodes = set([nodeName for nodeName, node in NODECLASSES.items() if node.matchHint(text)])
+            nodes = set([nodeName for nodeName, node in NODECLASSES.items() if node.matchHint(text[1:])])
         model = QStandardItemModel()
         for node in sorted(nodes):
             item = QStandardItem()
@@ -136,6 +122,7 @@ class NodeList(QListView):
             super(NodeList, self).mousePressEvent(event)
             self.down = True
             name = self.filter.listView.selectedIndexes()[0].data()
+            print(name,"\n",name in NODECLASSES,'\n',NODECLASSES)
             self.selectedClass = NODECLASSES[name]
             # self.blockSignals(True)
             # self.selectionChanged()
@@ -220,7 +207,7 @@ class ContextNodeList(NodeList):
         :param event: QMouseEvent.
         :return: None
         """
-        super(NodeList, self).mouseReleaseEvent(event)
+        super(ContextNodeList, self).mouseReleaseEvent(event)
         painter = floppy.floppyUi.mainWindow.getPainter()
         # pos = QCursor.pos()
         pos = self.parent().mapToGlobal(self.parent().pos())
@@ -302,11 +289,4 @@ class ContextNodeFilter(NodeFilter):
             model.appendRow(item)
         self.listView.setModel(model)
 
-
-
-
-
-
-
-
-
+import floppy.floppyUi

@@ -1,4 +1,9 @@
 #!python3
 if __name__ == '__main__':
-    import floppy.main
+    try:
+        import floppy.main
+    except ImportError:
+        import sys
+        sys.path.append("..")
+        import floppy.main
     floppy.main.run()

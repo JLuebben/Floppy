@@ -12,8 +12,7 @@ class AMyNode(Node):
     Output('Int2', int)
 
     def run(self):
-        self._Int1
-        self._Int2(self._Int1 + 1)
+        self.o_Int2 = self.i_Int1.value + 1
 
 
 
@@ -23,7 +22,7 @@ class FakeWorkNode(Node):
     Output('out', object)
 
     def run(self):
-        print('Working @ {}'.format(str(self._inp)))
+        print('Working @ {}'.format(str(self.i_inp.value)))
         time.sleep(random.randrange(1,5))
         print('Done')
         # self._return('Test Return Value')
@@ -36,7 +35,7 @@ class IncrementNode(Node):
         self.i = 0
 
     def run(self):
-        self._Integer(self.i)
+        self.o_Integer = self.i
         self.i += 1
 
 
@@ -44,7 +43,7 @@ class RandomFloat(Node):
     Output('Float', float)
 
     def run(self):
-        self._Float(random.random())
+        self.o_Float = random.random()
 
 
 class RunProgram(Node):
@@ -58,16 +57,16 @@ class RunProgram(Node):
     Output('StdOut', str)
 
     def run(self):
-        programName = self._ProgramName
-        args = [programName] + self._Arguments.split()
+        programName = self.i_ProgramName.value
+        args = [programName] + self.i_Arguments.value.split()
         r = 0
         try:
-            out = subprocess.check_output(args, shell=True)
+            out = subprocess.check_output(args, shell=True,stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError as e:
-            out = ''
-            r = e[-1]
-        self._ReturnValue(r)
-        self._StdOut(out)
+            out = e.output
+            r = e.returncode
+        self.o_ReturnValue = r
+        self.o_StdOut = out
 
 
 
@@ -76,14 +75,14 @@ class Range(Node):
     Input('EndValue', int)
     Output('ValueList', int, list=True)
     def run(self):
-        self._ValueList(list(range(self._EndValue)))
+        self.o_ValueList = list(range(self.i_EndValue.value))
 
 
 class Int2Str(Node):
     Input('Int', int)
     Output('Str', str)
     def run(self):
-        self._Str(str(self._Int))
+        self.o_Str = str(self.i_Int.value)
 
 
 

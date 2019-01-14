@@ -1,3 +1,4 @@
+from floppy.node import setNodesPath
 from floppy.graph import Graph
 from floppy.floppyUi import Painter2D, MainWindow
 import sys
@@ -16,9 +17,32 @@ logger.addHandler(fh)
 
 
 def run():
+    """ call only if floppy should create application window and run your application within floppy
+        application.
+
+        To select which nodes to be loaded from which pathes use the following code
+
+        setNodesPath(...) 
+        painter = initializePainter() 
+        startUI(app,painter) 
+
+        To embedd floppy within your application use
+
+        setNodesPath(...) 
+        painter = initializePainter() 
+        win = MainWindow(painter=painter,parent=<immediateparentwidget>)
+        
+        and add to the layout defined on the <immediateparentwidget> if any to embedd
+        the floppy window within the window of your application.
+
+    """
+    setNodesPath()
     logger.info('Starting Floppy Application with '+' '.join(sys.argv))
     app = QApplication(sys.argv)
     painter = initializePainter()
+
+    import PyQt5.QtCore 
+
     startUI(app, painter)
 
 

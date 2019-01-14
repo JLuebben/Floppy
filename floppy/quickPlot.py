@@ -3,6 +3,13 @@ Dependency free module to create simple SVG graphics.
 """
 BLACK = "rgb(0,0,0)"
 WHITE = "rgb(255,255,255)"
+BLUE = "rgb(0,0,255)"
+RED = "rgb(255,0,0)"
+GREEN = "rgb(0,255,0)"
+YELLOW = "rgb(255,255,0)"
+MAGENTA = "rgb(255,0,255)"
+CYAN = "rgb(0,255,255)"
+ORANGE = "rgb(255,160,0)"
 C1 = "#00A8A8"
 C2 = "#0F42B7"
 C3 = "#FF7400"
@@ -147,7 +154,7 @@ class SVGText(SVGElement):
 
 
 class LinePlot(SVG):
-    def __init__(self, width, height, color, rangeX=None, rangeY=None):
+    def __init__(self, width, height, color = BLUE, rangeX=None, rangeY=None):
         super(LinePlot, self).__init__(width, height, color)
         self.minX = 0
         self.minY = 0

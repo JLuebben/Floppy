@@ -201,33 +201,39 @@ class ExecutionThread(Thread):
             self._executeGraphStep = self.executeGraphStep
 
     def run(self):
-        while self.alive:
-            xLock.acquire()
-            cmd = None
-            if not self.cmdQueue.empty():
-                cmd = self.cmdQueue.get()
-            xLock.release()
-            # print(cmd)
-            if cmd:
-                cmd(self)
-            if self.paused:
-                # print('Sleeping')
-                time.sleep(1)
-                continue
-            if self.alive and self.graph:
-                if not self.graph.returnValue == -1:
-                    # print(self.graph.returnPriority)
-                    self.pause()
-                # print(self.graph.nodes)
-                #print('Doing stuff.')
-                # self.executeGraphStep()
-                # self.executeGraphStepPar()
-                self._executeGraphStep()
-                self.master.updateRunningNodes(self.graph.runningNodes)
-            else:
-                time.sleep(self.framerate)
-        print('That\'s it. I\'m dead.')
-        logger.info('ExecutionThread terminating')
+        try:
+            while self.alive:
+                xLock.acquire()
+                cmd = None
+                if not self.cmdQueue.empty():
+                    cmd = self.cmdQueue.get()
+                xLock.release()
+                # print(cmd)
+                if cmd:
+                    cmd(self)
+                if self.paused:
+                    # print('Sleeping')
+                    time.sleep(1)
+                    continue
+                if self.alive and self.graph:
+                    if not self.graph.returnValue == -1:
+                        # print(self.graph.returnPriority)
+                        self.pause()
+                    # print(self.graph.nodes)
+                    #print('Doing stuff.')
+                    # self.executeGraphStep()
+                    # self.executeGraphStepPar()
+                    self._executeGraphStep()
+                    self.master.updateRunningNodes(self.graph.runningNodes)
+                else:
+                    time.sleep(self.framerate)
+            print('That\'s it. I\'m dead.')
+            logger.info('ExecutionThread terminating')
+        except:
+            import traceback
+            traceback.print_exc()
+            print("for now failing execution thread")
+            raise
 
     def pause(self):
         logger.info('Pausing')
@@ -346,17 +352,23 @@ class Listener(Thread):
         self.listenSocket.close()
 
     def run(self):
-        while self.alive:
-            # print('++++++++++Waiting for client.')
-            try:
-                cSocket, address = self.listenSocket.accept()
-                print('++++++++++client accepted.')
-                logger.info('Client Connection from {} accepted'.format(address))
-            except OSError as x:
-                continue
-            # if str(address[0]) == '127.0.0.1':
-            else:
-                CommandProcessor(cSocket, address, self.master, self)
+        try:
+            while self.alive:
+                # print('++++++++++Waiting for client.')
+                try:
+                    cSocket, address = self.listenSocket.accept()
+                    print('++++++++++client accepted.')
+                    logger.info('Client Connection from {} accepted'.format(address))
+                except OSError as x:
+                    continue
+                # if str(address[0]) == '127.0.0.1':
+                else:
+                    CommandProcessor(cSocket, address, self.master, self)
+        except:
+            import traceback
+            traceback.print_exc()
+            print("for now failing in Listener")
+            raise
 
 
 class CommandProcessor(Thread):
@@ -373,59 +385,65 @@ class CommandProcessor(Thread):
         self.cSocket.sendall(msg)
 
     def run(self):
-        while True:
-            # message = self.cSocket.recv(1024).decode()
-            message = self.receive()
-            if message:
-                # logger.debug('Received command: {}...'.format(message[:10]))
-                if message == 'KILL':
-                    # print('Killing myself')
-                    self.send('Runner is terminating.')
-                    self.listener.kill()
-                    self.master.kill()
-                    return
-                elif message == 'READY?':
-                    self.send('READY')
-                elif message == 'PAUSE':
-                    self.send('Runner is pausing.')
-                    self.master.pause()
-                elif message == 'UNPAUSE':
-                    self.send('Runner is unpausing.')
-                    self.master.unpause()
-                elif message.startswith('UPDATE'):
-                    self.send('Runner is updating.')
-                    self.master.updateGraph(message[6:])
-                elif message.startswith('PUSH'):
-                    self.send('Accepted pushed Graph. Runner is updating.')
-                    self.master.loadGraph(message[4:])
-                elif message.startswith('DROP'):
-                    self.send('Runner is dropping current graph.')
-                    self.master.drop()
-                elif message.startswith('GOTO'):
-                    nextID = int(message[4:])
-                    self.send('Runner jumping to node {}.'.format(nextID))
-                    self.master.goto(nextID)
-                elif message.startswith('CONFIGURE'):
-                    msg = message[9:]
-                    self.send('Configuration accepted.')
-                    self.master.configure(json.loads(msg))
-                elif message == 'STEP':
-                    self.send('Runner is performing one step.')
-                    self.master.step()
-                elif message.startswith('STATUS'):
-                    if self.master.executionThread.graph:
-                        if not self.master.executionThread.graph.returnValue == -1:
-
-                            self.send(json.dumps({'STATUS': 'RETURN', 'REPORT': (self.master.executionThread.graph.returnValue, self.master.executionThread.graph.returningNode)}))
-                            continue
-                    reportNode = message.split('***')[-1]
-                    report = ''
-                    if reportNode:
-                        report = self.master.getReport(int(reportNode))
-                    status = self.master.getStatus()
-                    self.send(json.dumps({'STATUS': status, 'REPORT': report}))
-                else:
-                    self.send('Command \'{}...\' not understood.'.format(message[:50]))
+        try:
+            while True:
+                # message = self.cSocket.recv(1024).decode()
+                message = self.receive()
+                if message:
+                    # logger.debug('Received command: {}...'.format(message[:10]))
+                    if message == 'KILL':
+                        # print('Killing myself')
+                        self.send('Runner is terminating.')
+                        self.listener.kill()
+                        self.master.kill()
+                        return
+                    elif message == 'READY?':
+                        self.send('READY')
+                    elif message == 'PAUSE':
+                        self.send('Runner is pausing.')
+                        self.master.pause()
+                    elif message == 'UNPAUSE':
+                        self.send('Runner is unpausing.')
+                        self.master.unpause()
+                    elif message.startswith('UPDATE'):
+                        self.send('Runner is updating.')
+                        self.master.updateGraph(message[6:])
+                    elif message.startswith('PUSH'):
+                        self.send('Accepted pushed Graph. Runner is updating.')
+                        self.master.loadGraph(message[4:])
+                    elif message.startswith('DROP'):
+                        self.send('Runner is dropping current graph.')
+                        self.master.drop()
+                    elif message.startswith('GOTO'):
+                        nextID = int(message[4:])
+                        self.send('Runner jumping to node {}.'.format(nextID))
+                        self.master.goto(nextID)
+                    elif message.startswith('CONFIGURE'):
+                        msg = message[9:]
+                        self.send('Configuration accepted.')
+                        self.master.configure(json.loads(msg))
+                    elif message == 'STEP':
+                        self.send('Runner is performing one step.')
+                        self.master.step()
+                    elif message.startswith('STATUS'):
+                        if self.master.executionThread.graph:
+                            if not self.master.executionThread.graph.returnValue == -1:
+    
+                                self.send(json.dumps({'STATUS': 'RETURN', 'REPORT': (self.master.executionThread.graph.returnValue, self.master.executionThread.graph.returningNode)}))
+                                continue
+                        reportNode = message.split('***')[-1]
+                        report = ''
+                        if reportNode:
+                            report = self.master.getReport(int(reportNode))
+                        status = self.master.getStatus()
+                        self.send(json.dumps({'STATUS': status, 'REPORT': report}))
+                    else:
+                        self.send('Command \'{}...\' not understood.'.format(message[:50]))
+        except:
+            import traceback
+            traceback.print_exc()
+            print("For now failing in commandprocessor")
+            raise
 
     def recvall(self, sock, n,):
         # Helper function to recv n bytes or return None if EOF is hit
@@ -463,15 +481,21 @@ class RGIConnection(Thread):
         self.start()
         
     def run(self):
-        super(RGIConnection, self).run()
-        while self.alive:
-            try:
-                cmd = self.cmdQueue.pop(0)
-            except IndexError:
-                time.sleep(.1)
-            else:
-                answer = self._send(cmd[0])
-                cmd[1](answer)
+        try:
+            super(RGIConnection, self).run()
+            while self.alive:
+                try:
+                    cmd = self.cmdQueue.pop(0)
+                except IndexError:
+                    time.sleep(.1)
+                else:
+                    answer = self._send(cmd[0])
+                    cmd[1](answer)
+        except:
+            import traceback
+            traceback.print_exc()
+            print("for now failing in RGIConnection")
+            raise
 
     def connect(self, host, port, validate=True):
         self.host = host
@@ -582,4 +606,4 @@ def spawnRunner(listenPort):
     r.join()
 
 if __name__ == '__main__':
-    spawnRunner()
+    spawnRunner(port)

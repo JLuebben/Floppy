@@ -1,4 +1,15 @@
-FLOPPYTYPES = {}
+from collections import OrderedDict
+from types import MappingProxyType
+FLOPPYTYPES = OrderedDict([
+    (None.__class__.__name__, None.__class__),
+    (str.__name__, str),
+    (bool.__name__, bool),
+    (int.__name__, int),
+    (float.__name__, float),
+    (object.__name__, object)
+])
+
+FLOPPYTYPEMAP = MappingProxyType(FLOPPYTYPES)
 
 
 class MetaType(type):

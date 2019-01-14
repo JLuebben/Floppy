@@ -42,7 +42,7 @@ class PlotBarsGrouped(PlotNode):
 
     def run(self):
         super(PlotBarsGrouped, self).run()
-        self.data.append((self._A, self._B))
+        self.data.append((self.i_A.value, self.i_B.value))
 
     def report(self):
         r = super(PlotBarsGrouped, self).report()
@@ -63,7 +63,7 @@ class PairedLinePlot(PlotNode):
 
     def run(self):
         super(PairedLinePlot, self).run()
-        self.points.append((None, (self._A, self._B)))
+        self.points.append((None, (self.i_A.value, self.i_B.value)))
 
     def report(self):
         r = super(PairedLinePlot, self).report()
@@ -76,14 +76,14 @@ class PairedLinePlot(PlotNode):
 class LinePlot(PlotNode):
     Input('Value', float)
     Output('Trigger', object)
-    Output('Trigger', object)
+    #Output('Trigger', object)
 
     def setup(self):
         self.points = []
 
     def run(self):
         super(LinePlot, self).run()
-        self.points.append((None, (self._Value,)))
+        self.points.append((None, (self.i_Value.value,)))
 
     def report(self):
         r = super(LinePlot, self).report()

@@ -4,6 +4,8 @@ import io
 import time
 from collections import OrderedDict
 import floppy
+from floppy.node import _NODECLASSES, ControlNode, SubGraph
+#import floppy.Nodes.floppyBaseNodes as floppyBaseNodes
 from floppy.runner import Runner, sendCommand, RGIConnection
 from socket import AF_INET, SOCK_STREAM, socket #, SHUT_RDWR, timeout, SHUT_RDWR, SO_REUSEADDR, SOL_SOCKET
 from threading import Thread, Lock
@@ -93,8 +95,7 @@ class Graph(object):
             newID = self.nextFreeNodeID
             self.nextFreeNodeID += 1
             return newID
-        else:
-            return super(Graph, self).__getattr__(item)
+        raise AttributeError("'{}' type object has no attribute '{}'".format(self.__class__,item))
 
     def requestUpdate(self):
         """
@@ -203,15 +204,16 @@ class Graph(object):
 
     def createCustomNodeClass(self, name, inputs, outputs, parents=None):
         if not parents:
-            parents = (floppy.node.Node,)
-        NodeClass = floppy.node.MetaNode(name, parents, {})
-        NodeClass.__inputs__ = OrderedDict()
-        NodeClass.__outputs__ = OrderedDict()
-        for inp in inputs:
-            NodeClass._addInput(data=inp, cls=NodeClass)
-        for out in outputs:
-            NodeClass._addOutput(data=out, cls=NodeClass)
-        floppy.node.NODECLASSES[name] = NodeClass
+            parents = floppy.node.Node
+        NodeClass = floppy.node.MetaNode.makeManaged(name,parents,inputs = inputs,outputs = outputs,nosafe = True)
+        #NodeClass = floppy.node.MetaNode(name, parents, {})
+        #NodeClass.__inputs__ = OrderedDict()
+        #NodeClass.__outputs__ = OrderedDict()
+        #for inp in inputs:
+        #    NodeClass._addInput(data=inp, cls=NodeClass)
+        #for out in outputs:
+        #    NodeClass._addOutput(data=out, cls=NodeClass)
+        #floppy.node.NODECLASSES[name] = NodeClass
         return NodeClass
 
 
@@ -260,7 +262,7 @@ class Graph(object):
         #                                                                                str(inpNode),
         #                                                                                inp))
         conn = Connection(outNode, out, inpNode, inp)
-        if not issubclass(type(inpNode), floppy.node.ControlNode) or not inp == 'Control':
+        if not issubclass(type(inpNode), ControlNode) or not inp == 'Control':
             for oldCon in self.reverseConnections[inpNode]:
                 if oldCon['inputName'] == inp:
                     self.reverseConnections[inpNode].remove(oldCon)
@@ -522,6 +524,8 @@ class Graph(object):
 
     def requestRemoteStatus(self):
         if self.connected:
+            # TODO check the exceptions do they happen still, as rgiConnection.send just pushes 
+            # status command to command queue so no direct socket contact any more
             try:
                 self.rgiConnection.send('STATUS***{}'.format(self._requestReport), self.setStatus)
                 # status = json.loads(status[10:])
@@ -531,9 +535,9 @@ class Graph(object):
             except ConnectionResetError:
                 self.connected = False
                 return []
-            except socket.timeout:
-                self.connected = False
-                return []
+            #except socket.timeout:
+            #    self.connected = False
+            #    return []
             else:
                 # return json.loads(status[10:])
                 return []
@@ -578,7 +582,7 @@ class Graph(object):
             idMap[int(id)] = restoredNode.ID
             inputs = nodeData['inputs']
             outputs = nodeData['outputs']
-            if isinstance(restoredNode, floppy.node.SubGraph):
+            if isinstance(restoredNode, SubGraph):
                 for inp in inputs:
                     if inp[0] == 'GraphName':
                         restoredNode.inputs[inp[0]].setDefault(inp[-1])
@@ -795,21 +799,27 @@ class NodeThread(Thread):
         self.start()
 
     def run(self):
-        super(NodeThread, self).run()
         try:
-            self.node.runLock.acquire()
-            self.node.run()
-        except Exception as a:
-            print('Something bad happened in when executing {}.'.format(str(self.node)))
-            print(a)
+            super(NodeThread, self).run()
+            try:
+                self.node.runLock.acquire()
+                self.node.run()
+            except Exception as a:
+                print('Something bad happened in when executing {}.'.format(str(self.node)))
+                print(a)
+                self.node.unlock()
+                self.node.runLock.release()
+                return
+            self.node.notify()
+            if self.cb:
+                self.cb(self.arg)
             self.node.unlock()
             self.node.runLock.release()
-            return
-        self.node.notify()
-        if self.cb:
-            self.cb(self.arg)
-        self.node.unlock()
-        self.node.runLock.release()
+        except:
+            import traceback
+            traceback.print_exc()
+            print("For now failing in NodeThread")
+            raise
 
 
 class Connection(object):
@@ -849,17 +859,23 @@ class StatusListener(Thread):
     #     self.listenSocket.shutdown(SHUT_RDWR)
 
     def run(self):
-        while self.alive:
-            try:
-                message = self.connection.recv(1024).decode()
-            except:
-                pass
-            else:
-                self.statusLock.acquire()
-                for ID in [i for i in message.split('#')if i]:
-                    self.master.executedBuffer.append(int(ID))
-                self.statusLock.release()
-                self.master.requestUpdate()
+        try:
+            while self.alive:
+                try:
+                    message = self.connection.recv(1024).decode()
+                except:
+                    pass
+                else:
+                    self.statusLock.acquire()
+                    for ID in [i for i in message.split('#')if i]:
+                        self.master.executedBuffer.append(int(ID))
+                    self.statusLock.release()
+                    self.master.requestUpdate()
+        except:
+            import traceback
+            traceback.print_exc()
+            print("For now failing in StatusListener")
+            raise
 
 
 

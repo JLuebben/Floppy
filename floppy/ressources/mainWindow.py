@@ -10,6 +10,11 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
+
+        from floppy.nodeLib import NodeFilter, NodeList
+        from floppy.reportWidget import ReportWidget
+        import floppy.ressources.icons_rc
+
         MainWindow.setObjectName("MainWindow")
         MainWindow.resize(1250, 910)
         MainWindow.setStyleSheet("MainWindow { background-color: rgb(95,95,95); border-color: black }\n"
@@ -176,11 +181,9 @@ class Ui_MainWindow(object):
         _translate = QtCore.QCoreApplication.translate
         MainWindow.setWindowTitle(_translate("MainWindow", "MainWindow"))
 
-from floppy.nodeLib import NodeFilter, NodeList
-from floppy.reportWidget import ReportWidget
-import floppy.ressources.icons_rc
 
 if __name__ == "__main__":
+
     import sys
     app = QtWidgets.QApplication(sys.argv)
     MainWindow = QtWidgets.QMainWindow()
@@ -188,4 +191,5 @@ if __name__ == "__main__":
     ui.setupUi(MainWindow)
     MainWindow.show()
     sys.exit(app.exec_())
+
 
